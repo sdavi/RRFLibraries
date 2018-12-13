@@ -131,4 +131,12 @@ bool StringRef::Prepend(const char *src) const
 	return true;
 }
 
+void StringRef::Truncate(size_t pos) const
+{
+	if (pos < len)
+	{
+		p[pos] = 0;
+	}
+}
+
 // End
