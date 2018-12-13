@@ -99,16 +99,21 @@ public:
 	static const TaskBase *GetTaskList() { return taskList; }
 
 	static constexpr int SpinPriority = 1;			// priority for tasks that rarely block
-#ifdef __LPC17xx__
+#ifdef LPC_NETWORKING
     static constexpr int TcpPriority  = 2;
     static constexpr int HeatPriority = 3;
+    static constexpr int TmcPriority = 3;
+    static constexpr int AinPriority = 3;
+    //static constexpr int CanSenderPriority = 3;
+    //static constexpr int CanReceiverPriority = 3;
+
 #else
     static constexpr int HeatPriority = 2;
+    static constexpr int TmcPriority = 2;
+    static constexpr int AinPriority = 2;
+    static constexpr int CanSenderPriority = 3;
+    static constexpr int CanReceiverPriority = 3;
 #endif
-	static constexpr int TmcPriority = 2;
-	static constexpr int AinPriority = 2;
-	static constexpr int CanSenderPriority = 3;
-	static constexpr int CanReceiverPriority = 3;
 
 protected:
 	TaskHandle_t handle;
