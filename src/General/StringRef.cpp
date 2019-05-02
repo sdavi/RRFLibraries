@@ -73,7 +73,7 @@ bool StringRef::copy(const char* src) const
 // This is quicker than printf for printing constant strings
 bool StringRef::copy(const char* src, size_t maxlen) const
 {
-	const size_t slen = ::strnlen(src, maxlen);
+	const size_t slen = Strnlen(src, maxlen);
 	const bool overflow = (slen >= len);
 	const size_t length = (overflow) ? len - 1 : slen;
 	memcpy(p, src, length);
@@ -137,6 +137,44 @@ void StringRef::Truncate(size_t pos) const
 	{
 		p[pos] = 0;
 	}
+}
+
+void StringRef::Erase(size_t pos, size_t count) const
+{
+	const size_t slen = strlen();
+	if (pos < slen)
+	{
+		while (pos + count < slen)
+		{
+			p[pos] = p[pos + count];
+			++pos;
+		}
+		p[pos] = 0;
+	}
+}
+
+// Insert a character, returning true if the string was truncated
+bool StringRef::Insert(size_t pos, char c) const
+{
+	const size_t slen = strlen();
+	if (pos > slen)
+	{
+		return false;										// insert point is out of range, but return success anyway
+	}
+	else if (slen + 1 < len)
+	{
+		// There is space for the extra character
+		memmove(p + pos + 1, p + pos, slen - pos + 1);		// copy the data up including the null terminator
+		p[pos] = c;
+		return false;
+	}
+	else if (pos < len)
+	{
+		// The buffer is full, but we haven't been asked to insert the character right at the end
+		memmove(p + pos + 1, p + pos, slen - pos - 1);		// leave the null terminator intact
+		p[pos] = c;
+	}
+	return true;
 }
 
 // End
