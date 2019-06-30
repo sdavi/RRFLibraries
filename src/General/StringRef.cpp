@@ -10,7 +10,6 @@
 #include <cstdio>
 #include "SafeVsnprintf.h"
 
-#warning We seem to be missing ::strnlen using define to RRF Version
 #define strnlen Strnlen
 
 //*************************************************************************************************
