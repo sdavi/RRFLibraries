@@ -20,8 +20,28 @@ typedef Task_undefined *TaskHandle;
 # include "task.h"
 # include "semphr.h"
 #else
-# define DONT_USE_CMSIS_INIT
-# include "asf.h"
+
+/** \brief  Enable IRQ Interrupts
+
+  This function enables IRQ interrupts by clearing the I-bit in the CPSR.
+  Can only be executed in Privileged modes.
+ */
+__attribute__( ( always_inline ) ) static inline void __enable_irq()
+{
+  __asm volatile ("cpsie i" : : : "memory");
+}
+
+
+/** \brief  Disable IRQ Interrupts
+
+  This function disables IRQ interrupts by setting the I-bit in the CPSR.
+  Can only be executed in Privileged modes.
+ */
+__attribute__( ( always_inline ) ) static inline void __disable_irq()
+{
+  __asm volatile ("cpsid i" : : : "memory");
+}
+
 #endif
 
 class Mutex
@@ -94,15 +114,38 @@ public:
 	void Resume() const { vTaskResume(handle); }
 	const TaskBase *GetNext() const { return next; }
 
-	void GiveFromISR()		// wake up this task from an ISR
+	// Wake up this task from an ISR
+	void GiveFromISR()
 	{
 		BaseType_t higherPriorityTaskWoken = pdFALSE;
 		vTaskNotifyGiveFromISR(handle, &higherPriorityTaskWoken);
 		portYIELD_FROM_ISR(higherPriorityTaskWoken);
 	}
 
-	void Give() { xTaskNotifyGive(handle); }							// wake up this task from an ISR
-	static uint32_t Take(uint32_t timeout = TimeoutUnlimited) { return ulTaskNotifyTake(pdTRUE, timeout); }
+	// Wake up a task identified by its handle from an ISR
+	static inline void GiveFromISR(TaskHandle h)
+	{
+		BaseType_t higherPriorityTaskWoken = pdFALSE;
+		vTaskNotifyGiveFromISR(h, &higherPriorityTaskWoken);
+		portYIELD_FROM_ISR(higherPriorityTaskWoken);
+	}
+
+	// Wake up this task but not from an ISR
+	void Give()
+	{
+		xTaskNotifyGive(handle);
+	}
+
+	static void Give(TaskHandle handle)
+	{
+		xTaskNotifyGive(handle);
+	}
+
+	// Wait until we have been woken up
+	static uint32_t Take(uint32_t timeout = TimeoutUnlimited)
+	{
+		return ulTaskNotifyTake(pdTRUE, timeout);
+	}
 
 	static TaskHandle GetCallerTaskHandle() { return (TaskHandle)xTaskGetCurrentTaskHandle(); }
 
@@ -160,7 +203,8 @@ class MutexLocker
 public:
 	MutexLocker(const Mutex *pm, uint32_t timeout = Mutex::TimeoutUnlimited);	// acquire lock
 	MutexLocker(const Mutex& pm, uint32_t timeout = Mutex::TimeoutUnlimited);	// acquire lock
-	void Release();															// release the lock early (else gets released by destructor)
+	void Release();																// release the lock early (also gets released by destructor)
+	bool ReAcquire(uint32_t timeout = Mutex::TimeoutUnlimited);					// acquire it again, if it isn't already owned (non-counting)
 	~MutexLocker();
 	operator bool() const { return acquired; }
 
@@ -187,7 +231,7 @@ namespace RTOSIface
 #ifdef RTOS
 		taskENTER_CRITICAL();
 #else
-		cpu_irq_disable();
+		__disable_irq();
 		++interruptCriticalSectionNesting;
 #endif
 	}
@@ -201,7 +245,7 @@ namespace RTOSIface
 		--interruptCriticalSectionNesting;
 		if (interruptCriticalSectionNesting == 0)
 		{
-			cpu_irq_enable();
+			__enable_irq();
 		}
 #endif
 	}
