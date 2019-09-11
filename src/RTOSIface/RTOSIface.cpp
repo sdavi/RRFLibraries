@@ -12,6 +12,7 @@
 # include "FreeRTOS.h"
 # include "task.h"
 # include "semphr.h"
+# include <atomic>
 
 static_assert(Mutex::TimeoutUnlimited == portMAX_DELAY, "Bad value for TimeoutUnlimited");
 
@@ -132,6 +133,21 @@ MutexLocker::~MutexLocker()
 
 #ifdef RTOS
 
+BinarySemaphore::BinarySemaphore()
+{
+	 handle = xSemaphoreCreateBinaryStatic(&storage);
+}
+
+bool BinarySemaphore::Take(uint32_t timeout) const
+{
+	return xSemaphoreTake(handle, timeout);
+}
+
+bool BinarySemaphore::Give() const
+{
+	return xSemaphoreGive(handle);
+}
+
 // Link the task into the thread list and allocate a short task ID to it. Task IDs start at 1.
 void TaskBase::AddToList()
 {
@@ -204,6 +220,95 @@ namespace RTOSIface
 
 #endif
 
+}
+
+void ReadWriteLock::LockForReading()
+{
+#ifdef RTOS
+	for (;;)
+	{
+# if __SAMC21G18A__
+		DisableInterrupts();
+		const uint8_t nr = numReaders;
+		if ((nr & 0x80) == 0)
+		{
+			numReaders = nr + 1;
+			EnableInterrupts();
+			break;
+		}
+		EnableInterrupts();
+		vTaskDelay(1);
+# else
+		uint8_t nr = numReaders;
+		if (nr & 0x80)
+		{
+			vTaskDelay(1);					// delay while writing is pending or active
+		}
+		else if (numReaders.compare_exchange_strong(nr, nr + 1))
+		{
+			break;
+		}
+# endif
+	}
+#endif
+}
+
+void ReadWriteLock::ReleaseReader()
+{
+#ifdef RTOS
+# if __SAMC21G18A__
+	DisableInterrupts();
+	--numReaders;
+	EnableInterrupts();
+# else
+	--numReaders;
+# endif
+#endif
+}
+
+void ReadWriteLock::LockForWriting()
+{
+#ifdef RTOS
+	// First wait for other writers to finish, then grab the write lock
+	for (;;)
+	{
+# if __SAMC21G18A__
+		DisableInterrupts();
+		const uint8_t nr = numReaders;
+		if ((nr & 0x80) == 0)
+		{
+			numReaders = nr | 0x80;
+			EnableInterrupts();
+			break;
+		}
+		EnableInterrupts();
+		vTaskDelay(1);
+# else
+		uint8_t nr = numReaders;
+		if (nr & 0x80)
+		{
+			vTaskDelay(1);					// delay while writing is pending or active
+		}
+		else if (numReaders.compare_exchange_strong(nr, nr | 0x80))
+		{
+			break;
+		}
+# endif
+	}
+
+	// Now wait for readers to finish
+	while (numReaders != 0x80)
+	{
+		vTaskDelay(1);
+	}
+#endif
+}
+
+void ReadWriteLock::ReleaseWriter()
+{
+#ifdef RTOS
+	numReaders = 0;
+#endif
 }
 
 // End

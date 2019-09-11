@@ -15,18 +15,21 @@
 class Task_undefined;					// this class is never defined
 typedef Task_undefined *TaskHandle;
 
+#include <utility>
+
 #ifdef RTOS
 # include "FreeRTOS.h"
 # include "task.h"
 # include "semphr.h"
-#else
+# include <atomic>
+#endif
 
 /** \brief  Enable IRQ Interrupts
 
   This function enables IRQ interrupts by clearing the I-bit in the CPSR.
   Can only be executed in Privileged modes.
  */
-__attribute__( ( always_inline ) ) static inline void __enable_irq()
+__attribute__( ( always_inline ) ) static inline void EnableInterrupts()
 {
   __asm volatile ("cpsie i" : : : "memory");
 }
@@ -37,12 +40,10 @@ __attribute__( ( always_inline ) ) static inline void __enable_irq()
   This function disables IRQ interrupts by setting the I-bit in the CPSR.
   Can only be executed in Privileged modes.
  */
-__attribute__( ( always_inline ) ) static inline void __disable_irq()
+__attribute__( ( always_inline ) ) static inline void DisableInterrupts()
 {
   __asm volatile ("cpsid i" : : : "memory");
 }
-
-#endif
 
 class Mutex
 {
@@ -85,6 +86,24 @@ private:
 	void *handle;
 #endif
 
+};
+
+class BinarySemaphore
+{
+public:
+	BinarySemaphore();
+
+	bool Take(uint32_t timeout = TimeoutUnlimited) const;
+	bool Give() const;
+
+	static constexpr uint32_t TimeoutUnlimited = 0xFFFFFFFF;
+
+private:
+
+#ifdef RTOS
+	SemaphoreHandle_t handle;
+	StaticSemaphore_t storage;
+#endif
 };
 
 #ifdef RTOS
@@ -132,11 +151,6 @@ public:
 
 	// Wake up this task but not from an ISR
 	void Give()
-	{
-		xTaskNotifyGive(handle);
-	}
-
-	static void Give(TaskHandle handle)
 	{
 		xTaskNotifyGive(handle);
 	}
@@ -203,6 +217,7 @@ class MutexLocker
 public:
 	MutexLocker(const Mutex *pm, uint32_t timeout = Mutex::TimeoutUnlimited);	// acquire lock
 	MutexLocker(const Mutex& pm, uint32_t timeout = Mutex::TimeoutUnlimited);	// acquire lock
+
 	void Release();																// release the lock early (also gets released by destructor)
 	bool ReAcquire(uint32_t timeout = Mutex::TimeoutUnlimited);					// acquire it again, if it isn't already owned (non-counting)
 	~MutexLocker();
@@ -210,6 +225,7 @@ public:
 
 	MutexLocker(const MutexLocker&) = delete;
 	MutexLocker& operator=(const MutexLocker&) = delete;
+	MutexLocker(MutexLocker&& other) : handle(other.handle), acquired(other.acquired) { other.handle = nullptr; other.acquired = false; }
 
 private:
 	const Mutex *handle;
@@ -231,7 +247,7 @@ namespace RTOSIface
 #ifdef RTOS
 		taskENTER_CRITICAL();
 #else
-		__disable_irq();
+		DisableInterrupts();
 		++interruptCriticalSectionNesting;
 #endif
 	}
@@ -245,7 +261,7 @@ namespace RTOSIface
 		--interruptCriticalSectionNesting;
 		if (interruptCriticalSectionNesting == 0)
 		{
-			__enable_irq();
+			EnableInterrupts();
 		}
 #endif
 	}
@@ -285,6 +301,8 @@ class InterruptCriticalSectionLocker
 public:
 	InterruptCriticalSectionLocker() { RTOSIface::EnterInterruptCriticalSection(); }
 	~InterruptCriticalSectionLocker() { (void)RTOSIface::LeaveInterruptCriticalSection(); }
+
+	InterruptCriticalSectionLocker(const InterruptCriticalSectionLocker&) = delete;
 };
 
 class TaskCriticalSectionLocker
@@ -292,6 +310,78 @@ class TaskCriticalSectionLocker
 public:
 	TaskCriticalSectionLocker() { RTOSIface::EnterTaskCriticalSection(); }
 	~TaskCriticalSectionLocker() { RTOSIface::LeaveTaskCriticalSection(); }
+
+	TaskCriticalSectionLocker(const TaskCriticalSectionLocker&) = delete;
+};
+
+// Class to represent a lock that allows multiple readers but only one writer
+// This is designed to be efficient when writing is rare
+class ReadWriteLock
+{
+public:
+	ReadWriteLock()
+#ifdef RTOS
+		: numReaders(0)
+#endif
+	{ }
+
+	void LockForReading();
+	void ReleaseReader();
+	void LockForWriting();
+	void ReleaseWriter();
+
+private:
+
+#ifdef RTOS
+# if __SAMC21G18A__
+	volatile uint8_t numReaders;			// SAMC21 doesn't support atomic operations, neither does the library
+# else
+	std::atomic_uint8_t numReaders;			// MSB is set if a task is writing or write pending, lower bits are the number of readers
+	static_assert(std::atomic_uint8_t::is_always_lock_free);
+# endif
+#endif
+};
+
+class ReadLocker
+{
+public:
+	ReadLocker(ReadWriteLock& p_lock) : lock(&p_lock) { lock->LockForReading(); }
+	~ReadLocker() { if (lock != nullptr) { lock->ReleaseReader(); } }
+
+	ReadLocker(const ReadLocker&) = delete;
+	ReadLocker(ReadLocker&& other) : lock(other.lock) { other.lock = nullptr; }
+
+private:
+	ReadWriteLock* lock;
+};
+
+class WriteLocker
+{
+public:
+	WriteLocker(ReadWriteLock& p_lock) : lock(&p_lock) { lock->LockForWriting(); }
+	~WriteLocker() { if (lock != nullptr) { lock->ReleaseWriter(); } }
+
+	WriteLocker(const WriteLocker&) = delete;
+	WriteLocker(WriteLocker&& other) : lock(other.lock) { other.lock = nullptr; }
+
+private:
+	ReadWriteLock* lock;
+};
+
+template<class T> class ReadLockedPointer
+{
+public:
+	ReadLockedPointer(ReadLocker& p_locker, T* p_ptr) : locker(std::move(p_locker)), ptr(p_ptr) { }
+	ReadLockedPointer(const ReadLockedPointer&) = delete;
+	ReadLockedPointer(ReadLockedPointer&& other) : locker(other.locker), ptr(other.ptr) { other.ptr = nullptr; }
+
+	bool IsNull() const { return ptr == nullptr; }
+	bool IsNotNull() const { return ptr != nullptr; }
+	T* operator->() const { return ptr; }
+
+private:
+	ReadLocker locker;
+	T* ptr;
 };
 
 #endif /* SRC_RTOSIFACE_H_ */
