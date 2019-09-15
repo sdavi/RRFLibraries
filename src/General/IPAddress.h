@@ -15,7 +15,9 @@ class IPAddress
 {
 public:
 	constexpr IPAddress() : v4Address(0) {  }
-	explicit IPAddress(const uint8_t ip[4]) { SetV4(ip); }
+    constexpr IPAddress(uint32_t ip) : v4Address(ip){ }
+    
+    explicit IPAddress(const uint8_t ip[4]) { SetV4(ip); }
 
 	bool operator==(const IPAddress& other) const { return v4Address == other.v4Address; }
 	bool operator!=(const IPAddress& other) const { return v4Address != other.v4Address; }
