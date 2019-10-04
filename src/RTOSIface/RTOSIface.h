@@ -24,6 +24,8 @@ typedef Task_undefined *TaskHandle;
 # include <atomic>
 #endif
 
+#define RRFLIBS_SAMC21	(defined(__SAMC21G18A__) && __SAMC21G18A__)
+
 /** \brief  Enable IRQ Interrupts
 
   This function enables IRQ interrupts by clearing the I-bit in the CPSR.
@@ -133,20 +135,26 @@ public:
 	void Resume() const { vTaskResume(handle); }
 	const TaskBase *GetNext() const { return next; }
 
-	// Wake up this task from an ISR
-	void GiveFromISR()
-	{
-		BaseType_t higherPriorityTaskWoken = pdFALSE;
-		vTaskNotifyGiveFromISR(handle, &higherPriorityTaskWoken);
-		portYIELD_FROM_ISR(higherPriorityTaskWoken);
-	}
-
 	// Wake up a task identified by its handle from an ISR
 	static inline void GiveFromISR(TaskHandle h)
 	{
-		BaseType_t higherPriorityTaskWoken = pdFALSE;
-		vTaskNotifyGiveFromISR(h, &higherPriorityTaskWoken);
-		portYIELD_FROM_ISR(higherPriorityTaskWoken);
+		if (h != nullptr)			// check that the task has been created
+		{
+			BaseType_t higherPriorityTaskWoken = pdFALSE;
+			vTaskNotifyGiveFromISR(h, &higherPriorityTaskWoken);
+			portYIELD_FROM_ISR(higherPriorityTaskWoken);
+		}
+	}
+
+	// Wake up this task from an ISR
+	void GiveFromISR()
+	{
+		if (handle != nullptr)			// check that the task has been created
+		{
+			BaseType_t higherPriorityTaskWoken = pdFALSE;
+			vTaskNotifyGiveFromISR(handle, &higherPriorityTaskWoken);
+			portYIELD_FROM_ISR(higherPriorityTaskWoken);
+		}
 	}
 
 	// Wake up this task but not from an ISR
@@ -333,7 +341,7 @@ public:
 private:
 
 #ifdef RTOS
-# if __SAMC21G18A__
+# if RRFLIBS_SAMC21
 	volatile uint8_t numReaders;			// SAMC21 doesn't support atomic operations, neither does the library
 # else
 	std::atomic_uint8_t numReaders;			// MSB is set if a task is writing or write pending, lower bits are the number of readers
