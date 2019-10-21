@@ -97,6 +97,7 @@ public:
 
 	bool Take(uint32_t timeout = TimeoutUnlimited) const;
 	bool Give() const;
+    bool GiveFromISR() const;
 
 	static constexpr uint32_t TimeoutUnlimited = 0xFFFFFFFF;
 

@@ -148,6 +148,12 @@ bool BinarySemaphore::Give() const
 	return xSemaphoreGive(handle);
 }
 
+bool BinarySemaphore::GiveFromISR() const
+{
+    BaseType_t mustYield=false;
+    return xSemaphoreGiveFromISR(handle, &mustYield);
+}
+
 // Link the task into the thread list and allocate a short task ID to it. Task IDs start at 1.
 void TaskBase::AddToList()
 {
