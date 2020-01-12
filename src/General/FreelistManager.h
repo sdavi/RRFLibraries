@@ -11,13 +11,14 @@
 #define SRC_LIBRARIES_GENERAL_FREELISTMANAGER_H_
 
 #include <cstddef>
+#include "../RTOSIface/RTOSIface.h"
 
 // Free list manager
 template<size_t Sz> class FreelistManager
 {
 public:
-	static void *Allocate();
-	static void Release(void *p);
+	static void *Allocate() noexcept;
+	static void Release(void *p) noexcept;
 
 private:
 	static void *freelist;
@@ -25,8 +26,10 @@ private:
 
 template<size_t Sz> void *FreelistManager<Sz>::freelist = nullptr;
 
-template<size_t Sz> void *FreelistManager<Sz>::Allocate()
+template<size_t Sz> void *FreelistManager<Sz>::Allocate() noexcept
 {
+	TaskCriticalSectionLocker lock;
+
 	if (freelist != nullptr)
 	{
 		void * const p = freelist;
@@ -36,25 +39,31 @@ template<size_t Sz> void *FreelistManager<Sz>::Allocate()
 	return ::operator new(Sz);
 }
 
-template<size_t Sz> void FreelistManager<Sz>::Release(void *p)
+template<size_t Sz> void FreelistManager<Sz>::Release(void *p) noexcept
 {
+	TaskCriticalSectionLocker lock;
+
 	*static_cast<void **>(p) = freelist;
 	freelist = p;
 }
 
 // Macro to return the size of objects of a given type rounded up to a multiple of 8 bytes.
 // We use this to reduce the number of freelists that we need to keep.
-#define ROUNDED_UP_SIZE(_type) ((sizeof(_type) + (8u - 1u)) & ~(8u - 1u))
-
-// Operators new and delete for the classes that we want to use these freelists for should call the following functions
-template<class T> inline void *Allocate()
+inline constexpr size_t RoundedUpSize(size_t rawSize)
 {
-	return FreelistManager<ROUNDED_UP_SIZE(T)>::Allocate();
+	constexpr size_t sizeIncrement = 8;
+	return ((rawSize + (sizeIncrement - 1u)) & ~(sizeIncrement - 1u));
 }
 
-template<class T> inline void Release(void *p)
+// Operators new and delete for the classes that we want to use these freelists for should call the following functions
+template<class T> inline void *Allocate() noexcept
 {
-	FreelistManager<ROUNDED_UP_SIZE(T)>::Release(p);
+	return FreelistManager<RoundedUpSize(sizeof(T))>::Allocate();
+}
+
+template<class T> inline void Release(void *p) noexcept
+{
+	FreelistManager<RoundedUpSize(sizeof(T))>::Release(p);
 }
 
 #endif /* SRC_LIBRARIES_GENERAL_FREELISTMANAGER_H_ */
