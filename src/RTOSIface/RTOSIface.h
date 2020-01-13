@@ -56,10 +56,10 @@ public:
 #endif
 	{ }
 
-	void Create(const char *pName);
-	bool Take(uint32_t timeout = TimeoutUnlimited) const;
-	bool Release() const;
-	TaskHandle GetHolder() const;
+	void Create(const char *pName) noexcept;
+	bool Take(uint32_t timeout = TimeoutUnlimited) const noexcept;
+	bool Release() const noexcept;
+	TaskHandle GetHolder() const noexcept;
 
 #ifdef RTOS
 	const Mutex *GetNext() const { return next; }
@@ -93,11 +93,10 @@ private:
 class BinarySemaphore
 {
 public:
-	BinarySemaphore();
+	BinarySemaphore() noexcept;
 
-	bool Take(uint32_t timeout = TimeoutUnlimited) const;
-	bool Give() const;
-    bool GiveFromISR() const;
+	bool Take(uint32_t timeout = TimeoutUnlimited) const noexcept;
+	bool Give() const noexcept;
 
 	static constexpr uint32_t TimeoutUnlimited = 0xFFFFFFFF;
 
