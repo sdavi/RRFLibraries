@@ -109,9 +109,20 @@ public:
 		return (bits & other.bits) != 0;
 	}
 
+	bool Disjoint(Bitmap<BaseType> other) const noexcept
+	{
+		return (bits & other.bits) == 0;
+	}
+
 	Bitmap<BaseType> ShiftUp(unsigned int n) const noexcept
 	{
 		return Bitmap<BaseType>(bits << n);
+	}
+
+	// Set the bits from a base type bitmap
+	void SetFromRaw(BaseType b) noexcept
+	{
+		bits = b;
 	}
 
 	// Count the number of set bits
